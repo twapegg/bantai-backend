@@ -1,4 +1,4 @@
-# AI Content Moderation API
+#    bant.ai API
 
 A FastAPI-based backend service for AI-powered content moderation, designed for parental control systems and browser extensions.
 
