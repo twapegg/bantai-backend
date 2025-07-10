@@ -1,218 +1,105 @@
 """
-Image Classification Service
-
-This module handles image moderation and NSFW detection.
-Currently implements dummy logic - replace with actual model inference.
+Minimized Image Classification Service
 """
-
 import asyncio
-import random
-from typing import Dict, Any, Optional
+import requests
+import base64
+from typing import Dict, Any
 import logging
 from io import BytesIO
 
-from PIL import Image
-import numpy as np
-
+from PIL import Image, ImageFilter
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class ImageClassifier:
-    """Service for classifying and moderating image content."""
-    
     def __init__(self):
-        self.nsfw_model = None
-        self.clip_model = None
-        self._initialize_models()
+        self.api_user = settings.sightengine_api_user
+        self.api_secret = settings.sightengine_api_secret
+        self.base_url = "https://api.sightengine.com/1.0/check.json"
+        self.threshold = settings.image_confidence_threshold
     
-    def _initialize_models(self):
-        """Initialize image classification models."""
+    async def classify_image(self, image_data: bytes, blur_unsafe: bool = True) -> Dict[str, Any]:
+        """Classify and optionally blur harmful images."""
         try:
-            # TODO: Initialize actual models here
-            # Options:
-            # 1. NSFW detection models (e.g., open-nsfw, nsfwjs port)
-            # 2. CLIP for general image understanding
-            # 3. Custom ONNX models
-            # 4. Cloud APIs (Azure Computer Vision, AWS Rekognition)
-            
-            logger.info("Image classification models initialized (dummy)")
-            
+            result = await self._classify_with_sightengine(image_data)
+            if blur_unsafe and result.get("label") == "unsafe":
+                result["blurred_image"] = self._blur_image(image_data)
+            return result
         except Exception as e:
-            logger.error(f"Failed to initialize image models: {e}")
+            return {"label": "error", "confidence": 0.0, "reason": str(e)}
     
-    async def classify_image(self, image_data: bytes) -> Dict[str, Any]:
-        """
-        Classify image content for inappropriate material.
-        
-        Args:
-            image_data: Raw image bytes
-            
-        Returns:
-            Dict containing classification results
-        """
+    async def classify_image_url(self, image_url: str, blur_unsafe: bool = True) -> Dict[str, Any]:
+        """Classify image from URL."""
         try:
-            # Basic image validation
-            image = self._validate_and_preprocess_image(image_data)
-            if not image:
-                return {
-                    "label": "error",
-                    "confidence": 0.0,
-                    "reason": "Invalid image format"
-                }
-            
-            # TODO: Replace with actual model inference
-            return await self._classify_with_dummy_logic(image)
-            
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: requests.get(image_url, timeout=10))
+            return await self.classify_image(response.content, blur_unsafe)
         except Exception as e:
-            logger.error(f"Error classifying image: {e}")
-            return {
-                "label": "error",
-                "confidence": 0.0,
-                "reason": f"Classification failed: {str(e)}"
-            }
+            return {"label": "error", "confidence": 0.0, "reason": str(e)}
     
-    def _validate_and_preprocess_image(self, image_data: bytes) -> Optional[Image.Image]:
-        """Validate and preprocess image data."""
+    async def classify_data_url(self, data_url: str, blur_unsafe: bool = True) -> Dict[str, Any]:
+        """Classify image from data URL."""
+        try:
+            base64_data = data_url.split(',', 1)[1]
+            image_data = base64.b64decode(base64_data)
+            return await self.classify_image(image_data, blur_unsafe)
+        except Exception as e:
+            return {"label": "error", "confidence": 0.0, "reason": str(e)}
+    
+    async def _classify_with_sightengine(self, image_data: bytes) -> Dict[str, Any]:
+        """Classify using SightEngine API."""
+        try:
+            data = {'api_user': self.api_user, 'api_secret': self.api_secret, 
+                   'models': 'nudity,weapon,alcohol,violence,gore,gambling,medical'}
+            files = {'media': image_data}
+            
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: requests.post(self.base_url, files=files, data=data))
+            
+            return self._parse_response(response.json())
+        except Exception as e:
+            return {"label": "error", "confidence": 0.0, "reason": str(e)}
+    
+    def _parse_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse SightEngine response."""
+        try:
+            issues = []
+            max_confidence = 0.0
+            
+            for detection_type, fields in [('nudity', ['raw', 'partial']), ('weapon', ['classes']), 
+                                         ('alcohol', ['prob']), ('violence', ['prob']), ('gore', ['prob']), 
+                                         ('gambling', ['prob']), ('medical', ['prob'])]:
+                if detection_type in result:
+                    confidence = self._extract_confidence(result[detection_type], fields)
+                    if confidence > self.threshold:
+                        max_confidence = max(max_confidence, confidence)
+                        issues.append(f"{detection_type} detected")
+            
+            return {"label": "unsafe", "confidence": round(max_confidence, 2), "reason": "; ".join(issues)} if issues else \
+                   {"label": "safe", "confidence": 0.95, "reason": "No inappropriate content detected"}
+        except Exception as e:
+            return {"label": "error", "confidence": 0.0, "reason": str(e)}
+    
+    def _extract_confidence(self, detection_data: Dict, fields: list) -> float:
+        """Extract confidence score."""
+        max_conf = 0.0
+        for field in fields:
+            if field == 'classes' and 'classes' in detection_data:
+                max_conf = max(max_conf, max(detection_data['classes'].values()))
+            elif field in detection_data:
+                max_conf = max(max_conf, detection_data[field])
+        return max_conf
+    
+    def _blur_image(self, image_data: bytes) -> str:
+        """Blur image and return as base64."""
         try:
             image = Image.open(BytesIO(image_data))
-            
-            # Convert to RGB if necessary
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # Resize if too large (for processing efficiency)
-            max_size = (1024, 1024)
-            if image.size[0] > max_size[0] or image.size[1] > max_size[1]:
-                image.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
-            return image
-            
-        except Exception as e:
-            logger.error(f"Image validation failed: {e}")
-            return None
-    
-    async def _classify_with_dummy_logic(self, image: Image.Image) -> Dict[str, Any]:
-        """
-        Dummy image classification logic for testing purposes.
-        Replace this with actual model inference.
-        """
-        # Simulate processing time
-        await asyncio.sleep(0.2)
-        
-        # Dummy logic based on image properties
-        width, height = image.size
-        
-        # Simple heuristics for demo purposes
-        if width > height * 1.5 or height > width * 1.5:
-            # Unusual aspect ratio might indicate screenshots
-            confidence = random.uniform(0.6, 0.8)
-            return {
-                "label": "safe",
-                "confidence": confidence,
-                "reason": "Unusual aspect ratio detected, likely screenshot"
-            }
-        
-        # Random classification for demonstration
-        labels = ["safe", "nudity", "violence", "disturbing"]
-        weights = [0.7, 0.15, 0.1, 0.05]  # Bias toward "safe"
-        
-        selected_label = random.choices(labels, weights=weights)[0]
-        
-        if selected_label == "safe":
-            confidence = random.uniform(0.8, 0.95)
-            reason = "No inappropriate content detected"
-        else:
-            confidence = random.uniform(0.6, 0.9)
-            reason = f"Detected potential {selected_label} content"
-        
-        return {
-            "label": selected_label,
-            "confidence": confidence,
-            "reason": reason
-        }
-    
-    async def classify_with_nsfw_model(self, image: Image.Image) -> Dict[str, Any]:
-        """
-        Classify image using NSFW detection model.
-        
-        TODO: Implement actual NSFW model inference
-        Options:
-        - ONNX model (e.g., open-nsfw)
-        - TensorFlow/PyTorch model
-        - Cloud API integration
-        """
-        try:
-            # TODO: Implement actual NSFW detection
-            # Example workflow:
-            # 1. Preprocess image (resize, normalize)
-            # 2. Convert to tensor/array
-            # 3. Run model inference
-            # 4. Post-process results
-            
-            # Placeholder implementation
-            return await self._classify_with_dummy_logic(image)
-            
-        except Exception as e:
-            logger.error(f"NSFW classification failed: {e}")
-            return {
-                "label": "error",
-                "confidence": 0.0,
-                "reason": f"NSFW detection failed: {str(e)}"
-            }
-    
-    async def classify_with_clip(self, image: Image.Image, text_queries: list[str]) -> Dict[str, Any]:
-        """
-        Classify image using CLIP model with text queries.
-        
-        TODO: Implement CLIP-based classification
-        Useful for detecting specific content types using text prompts.
-        """
-        try:
-            # TODO: Implement CLIP inference
-            # Example text queries:
-            # - "explicit content"
-            # - "violence"
-            # - "inappropriate for children"
-            # - "safe for work"
-            
-            return await self._classify_with_dummy_logic(image)
-            
-        except Exception as e:
-            logger.error(f"CLIP classification failed: {e}")
-            return {
-                "label": "error",
-                "confidence": 0.0,
-                "reason": f"CLIP detection failed: {str(e)}"
-            }
-    
-    async def classify_with_cloud_api(self, image_data: bytes) -> Dict[str, Any]:
-        """
-        Classify image using cloud API services.
-        
-        TODO: Implement cloud API integration
-        Options:
-        - Azure Computer Vision
-        - AWS Rekognition
-        - Google Cloud Vision
-        """
-        try:
-            # TODO: Implement cloud API calls
-            # Example for Azure Computer Vision:
-            # 1. Encode image to base64
-            # 2. Make API request
-            # 3. Parse response
-            # 4. Map to our schema
-            
-            return await self._classify_with_dummy_logic(
-                Image.open(BytesIO(image_data))
-            )
-            
-        except Exception as e:
-            logger.error(f"Cloud API classification failed: {e}")
-            return {
-                "label": "error",
-                "confidence": 0.0,
-                "reason": f"Cloud API detection failed: {str(e)}"
-            }
+            blurred = image.filter(ImageFilter.GaussianBlur(radius=15))
+            buffer = BytesIO()
+            blurred.save(buffer, format='JPEG', quality=85)
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+        except Exception:
+            return ""

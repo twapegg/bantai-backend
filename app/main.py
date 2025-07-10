@@ -20,7 +20,7 @@ from app.api import text_filter, image_filter, audio_filter
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed from INFO to DEBUG
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -56,7 +56,7 @@ app = FastAPI(
     This API provides endpoints for:
     - Text content moderation using LLM/AI models
     - Image classification and NSFW detection
-    - Audio transcription and content analysis
+    - Desktop audio transcription and content analysis via Stereo Mix
     
     Designed for integration with desktop applications and browser extensions.
     """,
@@ -136,7 +136,11 @@ async def root():
         "endpoints": {
             "text_moderation": "/moderate/text",
             "image_moderation": "/moderate/image",
-            "audio_moderation": "/moderate/audio"
+            "audio_transcription": "/audio/health",
+            "audio_start": "/audio/start",
+            "audio_stop": "/audio/stop",
+            "audio_transcript": "/audio/transcript",
+            "audio_devices": "/audio/devices"
         }
     }
 

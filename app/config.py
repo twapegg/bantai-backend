@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-3.5-turbo", description="OpenAI model to use")
     
+    # SightEngine Configuration (for image moderation)
+    sightengine_api_user: str = Field(default="1761779130", description="SightEngine API user")
+    sightengine_api_secret: str = Field(default="VjbrT3TeNppge5pFPCRGJDMKqJbJ2guH", description="SightEngine API secret")
+    
     # Model Configuration
     text_confidence_threshold: float = Field(default=0.7, description="Text moderation confidence threshold")
     image_confidence_threshold: float = Field(default=0.8, description="Image moderation confidence threshold")

@@ -1,207 +1,113 @@
 """
-Audio Processing Service
-
-This module handles audio transcription and content moderation.
-Currently implements dummy logic - replace with actual model inference.
+Audio Processing Service - Stereo Mix capture and transcription
 """
-
-import asyncio
-import random
-from typing import Dict, Any, Optional
 import logging
-import tempfile
-import os
-
-from app.config import settings
+import assemblyai as aai
+from assemblyai.streaming.v3 import StreamingClient, StreamingClientOptions, StreamingParameters, TurnEvent, StreamingEvents
 
 logger = logging.getLogger(__name__)
-
+ASSEMBLYAI_API_KEY = "8ae8f00f8c83438e9329402cbcbe139d"
 
 class AudioProcessor:
-    """Service for processing and moderating audio content."""
+    """Simple Stereo Mix audio transcription service."""
     
     def __init__(self):
-        self.whisper_model = None
-        self._initialize_models()
-    
-    def _initialize_models(self):
-        """Initialize audio processing models."""
-        try:
-            # TODO: Initialize actual models here
-            # Options:
-            # 1. OpenAI Whisper for transcription
-            # 2. Local speech-to-text models
-            # 3. Cloud APIs (Azure Speech, AWS Transcribe)
-            
-            logger.info("Audio processing models initialized (dummy)")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize audio models: {e}")
-    
-    async def process_audio(self, audio_data: bytes, filename: str) -> Dict[str, Any]:
-        """
-        Process audio content: transcribe and moderate.
+        self.latest_fragment = ""
+        self.last_transcript = ""
+        self.is_streaming = False
+        aai.settings.api_key = ASSEMBLYAI_API_KEY  
         
-        Args:
-            audio_data: Raw audio bytes
-            filename: Original filename for format detection
-            
-        Returns:
-            Dict containing processing results
-        """
-        try:
-            # Validate audio format
-            if not self._is_valid_audio_format(filename):
-                return {
-                    "transcript": "",
-                    "label": "error",
-                    "confidence": 0.0,
-                    "reason": "Unsupported audio format"
-                }
-            
-            # Transcribe audio
-            transcript = await self._transcribe_audio(audio_data)
-            
-            if not transcript:
-                return {
-                    "transcript": "",
-                    "label": "error",
-                    "confidence": 0.0,
-                    "reason": "Transcription failed"
-                }
-            
-            # Moderate the transcript
-            moderation_result = await self._moderate_transcript(transcript)
-            
-            return {
-                "transcript": transcript,
-                "label": moderation_result["label"],
-                "confidence": moderation_result["confidence"],
-                "reason": moderation_result["reason"]
-            }
-            
-        except Exception as e:
-            logger.error(f"Error processing audio: {e}")
-            return {
-                "transcript": "",
-                "label": "error",
-                "confidence": 0.0,
-                "reason": f"Processing failed: {str(e)}"
-            }
-    
-    def _is_valid_audio_format(self, filename: str) -> bool:
-        """Check if audio format is supported."""
-        supported_formats = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac']
-        return any(filename.lower().endswith(fmt) for fmt in supported_formats)
-    
-    async def _transcribe_audio(self, audio_data: bytes) -> Optional[str]:
-        """
-        Transcribe audio to text.
+    def start_transcription(self):
+        """Start real-time transcription from Stereo Mix."""
+        if self.is_streaming:
+            return
         
-        TODO: Replace with actual transcription model
-        """
+        self.latest_fragment = ""
+        self.last_transcript = ""
+        
         try:
-            # Simulate processing time
-            await asyncio.sleep(1.0)
+            client = StreamingClient(StreamingClientOptions(api_key=ASSEMBLYAI_API_KEY))
             
-            # TODO: Implement actual transcription
-            # Options:
-            # 1. OpenAI Whisper (local)
-            # 2. Cloud APIs (Azure Speech, AWS Transcribe)
-            # 3. Other speech-to-text models
+            def on_turn(_, event: TurnEvent):
+                if event.transcript:
+                    self._update_transcript(event.transcript)
             
-            return await self._dummy_transcription(audio_data)
+            client.on(StreamingEvents.Turn, on_turn)
+            client.connect(StreamingParameters(sample_rate=16000, format_turns=True))
+            
+            self.is_streaming = True
+            
+            # Find and use Stereo Mix
+            import pyaudio
+            p = pyaudio.PyAudio()
+            device = self._find_stereo_mix(p)
+            
+            if device:
+                stream = p.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=16000,
+                    input=True,
+                    input_device_index=device["index"],
+                    frames_per_buffer=1024
+                )
+                
+                def audio_generator():
+                    while self.is_streaming:
+                        try:
+                            yield stream.read(1024, exception_on_overflow=False)
+                        except:
+                            break
+                
+                client.stream(audio_generator())
+                stream.close()
+            
+            p.terminate()
             
         except Exception as e:
             logger.error(f"Transcription failed: {e}")
-            return None
+        finally:
+            self.is_streaming = False
     
-    async def _dummy_transcription(self, audio_data: bytes) -> str:
-        """Dummy transcription for testing purposes."""
-        # Generate dummy transcript based on audio size
-        audio_size_mb = len(audio_data) / (1024 * 1024)
+    def stop_transcription(self):
+        """Stop transcription."""
+        self.is_streaming = False
+    
+    def get_transcript(self):
+        """Get latest fragment only."""
+        return self.latest_fragment
+    
+    def _find_stereo_mix(self, p):
+        """Find Stereo Mix device."""
+        for i in range(p.get_device_count()):
+            device = p.get_device_info_by_index(i)
+            name = device.get("name", "").lower()
+            channels = device.get("maxInputChannels", 0)
+            
+            if channels > 0 and "stereo mix" in name:
+                return {"index": i, "name": device.get("name")}
         
-        sample_transcripts = [
-            "This is a sample audio transcript for testing purposes.",
-            "Hello, this is a test recording with some sample content.",
-            "The audio contains normal conversation without inappropriate content.",
-            "This is inappropriate content that should be flagged by the system.",
-            "Testing audio moderation with various types of content."
-        ]
-        
-        # Longer audio gets longer transcript
-        if audio_size_mb > 1.0:
-            return " ".join(random.choices(sample_transcripts, k=3))
+        logger.error("Stereo Mix not found - enable it in Windows Sound settings")
+        return None
+    
+    def _update_transcript(self, new_text):
+        """Store only the latest fragment for frontend consumption."""
+        if not new_text or new_text == self.last_transcript:
+            return
+            
+        # Extract only new content if this is an incremental update
+        if self.last_transcript and new_text.startswith(self.last_transcript):
+            # Extract only the new part
+            new_part = new_text[len(self.last_transcript):].strip()
+            if new_part:
+                self.latest_fragment = new_part
+            else:
+                return  # No new content
         else:
-            return random.choice(sample_transcripts)
-    
-    async def _moderate_transcript(self, transcript: str) -> Dict[str, Any]:
-        """
-        Moderate the transcribed text.
+            # Completely new content
+            self.latest_fragment = new_text
         
-        This reuses the text moderation logic.
-        """
-        # Import here to avoid circular imports
-        from app.services.text_analyzer import TextAnalyzer
-        
-        text_analyzer = TextAnalyzer()
-        return await text_analyzer.analyze_text(transcript)
-    
-    async def transcribe_with_whisper(self, audio_data: bytes) -> Optional[str]:
-        """
-        Transcribe audio using OpenAI Whisper.
-        
-        TODO: Implement actual Whisper integration
-        """
-        try:
-            # TODO: Implement Whisper transcription
-            # Example workflow:
-            # 1. Save audio to temporary file
-            # 2. Load Whisper model
-            # 3. Transcribe audio
-            # 4. Clean up temporary file
-            
-            # Placeholder implementation
-            return await self._dummy_transcription(audio_data)
-            
-        except Exception as e:
-            logger.error(f"Whisper transcription failed: {e}")
-            return None
-    
-    async def transcribe_with_cloud_api(self, audio_data: bytes) -> Optional[str]:
-        """
-        Transcribe audio using cloud API services.
-        
-        TODO: Implement cloud API integration
-        Options:
-        - Azure Speech Services
-        - AWS Transcribe
-        - Google Cloud Speech-to-Text
-        """
-        try:
-            # TODO: Implement cloud API calls
-            # Example for Azure Speech:
-            # 1. Convert audio to supported format
-            # 2. Upload to speech service
-            # 3. Get transcription results
-            # 4. Return transcript
-            
-            return await self._dummy_transcription(audio_data)
-            
-        except Exception as e:
-            logger.error(f"Cloud API transcription failed: {e}")
-            return None
-    
-    def _save_temp_audio(self, audio_data: bytes, extension: str) -> str:
-        """Save audio data to temporary file."""
-        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
-            temp_file.write(audio_data)
-            return temp_file.name
-    
-    def _cleanup_temp_file(self, filepath: str):
-        """Clean up temporary file."""
-        try:
-            if os.path.exists(filepath):
-                os.unlink(filepath)
-        except Exception as e:
-            logger.error(f"Failed to cleanup temp file {filepath}: {e}")
+        self.last_transcript = new_text
+        logger.info(f"New fragment: '{self.latest_fragment}'")
+
+

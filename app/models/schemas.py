@@ -43,14 +43,16 @@ class TextModerationResponse(ModerationResponse):
 
 class ImageModerationResponse(ModerationResponse):
     """Response schema for image moderation."""
-    label: str = Field(..., description="Image moderation label: 'nudity', 'violence', 'safe', etc.")
+    label: str = Field(..., description="Image moderation label: 'safe', 'unsafe', or 'error'")
+    blurred_image: Optional[str] = Field(None, description="Base64 encoded blurred image for unsafe content")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "label": "safe",
-                "confidence": 0.92,
-                "reason": "No inappropriate content detected",
+                "label": "unsafe",
+                "confidence": 0.87,
+                "reason": "nudity detected",
+                "blurred_image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEA...",
                 "timestamp": "2024-01-01T12:00:00"
             }
         }
