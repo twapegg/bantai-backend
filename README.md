@@ -88,25 +88,20 @@ The API will be available at `http://localhost:8000`
 
 ## 📚 API Endpoints
 
-### Text Moderation
+### OCR
+- **POST** `/ocr/image-text` - Extract text from image URL
+- **POST** `/ocr/image-text/analyze` - Extract and analyze text from image URL
+- **GET** `/ocr/health` - OCR health check
 
-- **POST** `/moderate/text` - Moderate text content
-- **GET** `/moderate/text/health` - Text moderation health check
+### Moderation
+- **POST** `/moderation/image` - Moderate image content
+- **GET** `/moderation/health` - Image moderation health check
 
-### Image Moderation
-
-- **POST** `/moderate/image` - Moderate image content
-- **POST** `/moderate/image/batch` - Batch image moderation
-- **GET** `/moderate/image/health` - Image moderation health check
-
-### Audio Moderation
-
-- **POST** `/moderate/audio` - Moderate audio content
-- **POST** `/moderate/audio/transcribe` - Transcribe audio only
-- **GET** `/moderate/audio/health` - Audio moderation health check
+### Audio
+- **POST** `/audio/filter` - Audio moderation endpoint
+- **GET** `/audio/health` - Audio moderation health check
 
 ### General
-
 - **GET** `/` - API information
 - **GET** `/health` - Overall health check
 - **GET** `/docs` - Interactive API documentation

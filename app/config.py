@@ -3,10 +3,8 @@ from typing import Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
-
 class Settings(BaseSettings):
-    """Application settings and configuration."""
-    
+    """Application settings and configuration."""    
     # API Configuration
     app_name: str = "AI Content Moderation API"
     app_version: str = "1.0.0"
@@ -25,26 +23,13 @@ class Settings(BaseSettings):
     # OpenAI Configuration (for text moderation)
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-3.5-turbo", description="OpenAI model to use")
-    
-    # SightEngine Configuration (for image moderation)
-    sightengine_api_user: str = Field(default="1761779130", description="SightEngine API user")
-    sightengine_api_secret: str = Field(default="VjbrT3TeNppge5pFPCRGJDMKqJbJ2guH", description="SightEngine API secret")
-    
-    # Model Configuration
-    text_confidence_threshold: float = Field(default=0.7, description="Text moderation confidence threshold")
-    image_confidence_threshold: float = Field(default=0.8, description="Image moderation confidence threshold")
-    
-    # File Upload Configuration
-    max_file_size: int = Field(default=10 * 1024 * 1024, description="Max file size in bytes (10MB)")
-    allowed_image_types: list[str] = Field(
-        default=["image/jpeg", "image/png", "image/gif", "image/webp"],
-        description="Allowed image MIME types"
-    )
+
+    # OCR.space Configuration
+    ocr_api_key: Optional[str] = Field(default=None, description="OCR API key")
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-
 
 # Global settings instance
 settings = Settings()

@@ -6,7 +6,5 @@ pydantic-settings
 python-dotenv
 openai
 requests
-pillow
-numpy
 assemblyai
 pyaudio
