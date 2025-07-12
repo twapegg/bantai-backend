@@ -16,7 +16,7 @@ from fastapi.exceptions import HTTPException
 
 from app.config import settings
 from app.models.schemas import HealthResponse, ErrorResponse
-from app.api import text_filter, image_filter, audio_filter
+from app.api import text_filter, image_filter, audio_filter, ocr
 
 # Configure logging
 logging.basicConfig(
@@ -149,6 +149,7 @@ async def root():
 app.include_router(text_filter.router)
 app.include_router(image_filter.router)
 app.include_router(audio_filter.router)
+app.include_router(ocr.router)
 
 
 # Additional middleware for request logging
